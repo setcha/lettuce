@@ -45,7 +45,7 @@ Exactly one hardware extra must be selected — they are mutually exclusive:
 
 | Extra | Use for |
 |---|---|
-| `cpu` | No GPU available, or macOS |
+| `cpu` | No GPU available, or macOS (including MPS on compatible Apple Silicon) |
 | `cu124` | CUDA 12.4 |
 | `cu126` | CUDA 12.6 |
 | `cu128` | CUDA 12.8 |

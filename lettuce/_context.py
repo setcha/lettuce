@@ -10,56 +10,74 @@ class Context:
     def __init__(self, device: Optional[torch.device | str] = None,
                  dtype: Optional[torch.dtype] = None,
                  use_native: Optional[bool] = None):
-        if device is str:
-            assert 'cuda' in device or 'cpu' in device
-        # check sanity of context configuration
+        device = self._resolve_device(device, use_native)
+        if use_native is None:
+            use_native = device.type == 'cuda'
 
-        if device is None and use_native is None:
-            device = torch.device('cuda:0'
-                                  if torch.cuda.is_available() else 'cpu')
-            use_native = True if torch.cuda.is_available() else False
-
-        elif device is None:
-            assert not use_native or torch.cuda.is_available(), \
-                ('cuda_native extension explicitly requested but '
-                 'cuda is not available!')
-            device = torch.device('cuda:0')
-
-        elif use_native is None:
-            if 'cuda' in str(device):
-                assert torch.cuda.is_available(), \
-                    ('cuda device explicitly requested but '
-                     'cuda is not available!')
-                use_native = True
-            else:
-                assert 'cpu' in str(device), \
-                    (f"lettuce is designed to work on cpu or cuda devices. "
-                     f"{device} is not supported!")
-                use_native = False
-
+        if device.type == 'cuda':
+            assert torch.cuda.is_available(), \
+                ('cuda device explicitly requested but cuda is not available!')
+        elif device.type == 'mps':
+            assert self._mps_available(), \
+                ('mps device explicitly requested but mps is not available!')
         else:
-            if 'cuda' in str(device):
-                assert torch.cuda.is_available(), \
-                    ('cuda device explicitly requested '
-                     'but cuda is not available!')
-            else:
-                assert 'cpu' in str(device), \
-                    (f"lettuce is designed to work on cpu or cuda devices. "
-                     f"{device} is not supported!")
-                assert not use_native, \
-                    ('can not use explicitly requested cuda_native extension '
-                     'on explicitly requested cpu device!')
+            assert device.type == 'cpu', \
+                (f"lettuce is designed to work on cpu, mps or cuda devices. "
+                 f"{device} is not supported!")
+
+        assert not use_native or device.type == 'cuda', \
+            ('can not use explicitly requested cuda_native extension '
+             'on non-cuda device!')
 
         dtype = dtype or torch.float32  # default dtype to single
         assert dtype in [torch.float16, torch.float32, torch.float64], \
             (f"lettuce is designed to work with common float types "
              f"(16, 32 and 64 bit). {dtype.__name__} is not supported!")
+        assert device.type != 'mps' or dtype != torch.float64, \
+            ('mps does not support double precision; use torch.float32 '
+             'or torch.float16.')
 
         # store context configuration
 
         self.device = torch.device(device)
         self.dtype = dtype
         self.use_native = use_native
+
+    @classmethod
+    def _resolve_device(cls, device: Optional[torch.device | str],
+                        use_native: Optional[bool]) -> torch.device:
+        if device is None:
+            if use_native:
+                assert torch.cuda.is_available(), \
+                    ('cuda_native extension explicitly requested but '
+                     'cuda is not available!')
+                return torch.device('cuda:0')
+            return cls._auto_device()
+
+        if isinstance(device, str):
+            if device == 'auto':
+                resolved = cls._auto_device()
+                if use_native:
+                    assert resolved.type == 'cuda', \
+                        ('cuda_native extension explicitly requested but '
+                         'cuda is not available!')
+                return resolved
+            if device == 'cuda':
+                return torch.device('cuda:0')
+        return torch.device(device)
+
+    @staticmethod
+    def _mps_available() -> bool:
+        return (hasattr(torch.backends, 'mps')
+                and torch.backends.mps.is_available())
+
+    @classmethod
+    def _auto_device(cls) -> torch.device:
+        if torch.cuda.is_available():
+            return torch.device('cuda:0')
+        if cls._mps_available():
+            return torch.device('mps')
+        return torch.device('cpu')
 
     def synchronize(self):
         """
@@ -68,6 +86,8 @@ class Context:
         """
         if self.device.type == 'cuda':
             torch.cuda.synchronize(self.device)
+        elif self.device.type == 'mps' and hasattr(torch, 'mps'):
+            torch.mps.synchronize()
 
     def empty_tensor(self, size: Union[List[int], torch.Size], *args,
                      dtype=None, **kwargs) -> torch.Tensor:
