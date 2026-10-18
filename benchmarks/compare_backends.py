@@ -12,7 +12,6 @@ import argparse
 import csv
 import json
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
 from statistics import mean, median, stdev
 from time import perf_counter
@@ -24,7 +23,7 @@ from lettuce.ext import BGKCollision, Guo, flow_by_name
 
 
 DEFAULT_DEVICES = ("cpu", "mps")
-DEFAULT_FLOWS = ("taylor2d", "poiseuille2d")
+DEFAULT_FLOWS = ("taylor2d", "poiseuille2d", "couette2d")
 DEFAULT_RESOLUTIONS = (128, 256, 512, 1024)
 
 
@@ -49,10 +48,11 @@ def make_simulation(device, flow_name, resolution):
     context = Context(device=device, dtype=torch.float32, use_native=False)
     flow_class, stencil = flow_by_name[flow_name]
     flow = flow_class(context, resolution=resolution, reynolds_number=1,
-                      mach_number=0.05, stencil=stencil)
+                      mach_number=0.05, stencil=stencil())
     force = Guo(
+        flow=flow,
         tau=flow.units.relaxation_parameter_lu,
-        acceleration=flow.units.convert_acceleration_to_lu(flow.force),
+        acceleration=flow.acceleration,
     ) if hasattr(flow, "acceleration") else None
     collision = BGKCollision(tau=flow.units.relaxation_parameter_lu,
                              force=force)
