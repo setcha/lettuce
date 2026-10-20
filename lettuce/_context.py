@@ -46,6 +46,12 @@ class Context:
     @classmethod
     def _resolve_device(cls, device: Optional[torch.device | str],
                         use_native: Optional[bool]) -> torch.device:
+        """Normalize a requested device, resolving ``None`` and ``"auto"``.
+
+        ``None`` and ``"auto"`` select the preferred available backend.  A
+        request for the native CUDA implementation requires that selection to
+        resolve to CUDA.
+        """
         if device is None:
             if use_native:
                 assert torch.cuda.is_available(), \
@@ -68,11 +74,13 @@ class Context:
 
     @staticmethod
     def _mps_available() -> bool:
+        """Return whether this PyTorch build can run operations on MPS."""
         return (hasattr(torch.backends, 'mps')
                 and torch.backends.mps.is_available())
 
     @classmethod
     def _auto_device(cls) -> torch.device:
+        """Select CUDA, MPS, or CPU, in that order of availability."""
         if torch.cuda.is_available():
             return torch.device('cuda:0')
         if cls._mps_available():
