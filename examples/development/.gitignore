@@ -1,6 +1,9 @@
-# don't trak manually_generate_cuda_native.py output directory
+# Do not track manually_generate_cuda_native.py output directories.
 cuda_native
 
 native_generated
 native_generated_orig
 native_hard_coded
+
+# Output written by compare_backends.py.
+benchmark-results/
