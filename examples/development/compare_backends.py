@@ -2,7 +2,8 @@
 """Compare CPU and MPS throughput using the normal PyTorch backend.
 
 Example:
-    uv run --extra cpu python benchmarks/compare_backends.py
+    uv run --extra cpu python examples/development/compare_backends.py \\
+        --output examples/development/benchmark-results/mps-comparison.json
 
 Results are reported in MLUPS.  The timer wraps an explicit device
 synchronization, so asynchronous MPS dispatch is included in the measurement.
