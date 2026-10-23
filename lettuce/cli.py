@@ -24,8 +24,12 @@ from lettuce.ext import (BGKCollision, ErrorReporter, VTKReporter,
 @click.group()
 @click.version_option(version=lettuce_version)
 @click.option("--cuda/--no-cuda",
-              default=True,
-              help="Use cuda (default=True).")
+              default=None,
+              help="Compatibility alias for --device cuda/cpu.")
+@click.option("--device",
+              type=click.Choice(["auto", "cpu", "mps", "cuda"]),
+              default="auto",
+              help="Torch device to use (default=auto).")
 @click.option("-i", "--gpu-id",
               type=int,
               default=0,
@@ -36,21 +40,31 @@ from lettuce.ext import (BGKCollision, ErrorReporter, VTKReporter,
               help="Numerical Precision; 16, 32, or 64 bit per float "
                    "(default=double).")
 @click.pass_context  # pass parameters to sub-commands
-def main(ctx, cuda, gpu_id, precision):
+def main(ctx, cuda, device, gpu_id, precision):
     """Pytorch-accelerated Lattice Boltzmann Solver
     """
     ctx.obj = {'device': None, 'dtype': None}
-    if cuda:
+    if cuda is not None:
+        device = "cuda" if cuda else "cpu"
+    if device == "cuda":
         if not torch.cuda.is_available():
-            print("CUDA not found.")
-            raise click.Abort
-        device = torch.device("cuda:{}".format(gpu_id))
+            raise click.ClickException("CUDA not found.")
+        torch_device = torch.device("cuda:{}".format(gpu_id))
     else:
-        device = torch.device("cpu")
+        try:
+            torch_device = Context(device).device
+        except AssertionError as exc:
+            raise click.ClickException(str(exc)) from exc
     dtype = {"half": torch.half, "single": torch.float,
              "double": torch.double}[precision]
+    if torch_device.type == "mps" and dtype == torch.double:
+        if ctx.get_parameter_source("precision") == click.core.ParameterSource.DEFAULT:
+            dtype = torch.float
+        else:
+            raise click.ClickException(
+                "MPS does not support double precision; use -p single or -p half.")
 
-    ctx.obj['device'] = device
+    ctx.obj['device'] = torch_device
     ctx.obj['dtype'] = dtype
 
 
@@ -77,8 +91,8 @@ def main(ctx, cuda, gpu_id, precision):
               help="VTK file basename to write the velocities and densities "
                    "to (default=""; no info gets written).")
 @click.option("--use-cuda_native/--use-no-cuda_native",
-              default=True,
-              help="whether to use the cuda_native implementation or not.")
+              default=None,
+              help="Use the cuda_native implementation (CUDA only; default=auto).")
 @click.option("--streaming-strategy",
               type=click.Choice(["PRE_STREAMING", "POST_STREAMING"]),
               default="PRE_STREAMING",
@@ -97,6 +111,7 @@ def benchmark(ctx, steps, resolution, profile_out, flow, vtk_out,
 
     flow_class, stencil = flow_by_name[flow]
     context = Context(ctx.obj['device'], ctx.obj['dtype'], use_cuda_native)
+    use_native = context.use_native
 
     flow = flow_class(context, resolution=resolution, reynolds_number=1,
                       mach_number=0.05, stencil=stencil)
@@ -127,18 +142,17 @@ def benchmark(ctx, steps, resolution, profile_out, flow, vtk_out,
         click.echo(f"Saved profiling information to {profile_out}.")
 
     click.echo("Finished {} ({}, {}, {}) for {} steps in {} bit precision with {}. MLUPS: {:10.2f}".format(
-        flow.__class__.__name__, flow.stencil.__class__.__name__, ctx.obj['device'], use_cuda_native, steps, str(ctx.obj['dtype']).replace("torch.float", ""), streaming_strategy, mlups))
+        flow.__class__.__name__, flow.stencil.__class__.__name__, ctx.obj['device'], use_native, steps, str(ctx.obj['dtype']).replace("torch.float", ""), streaming_strategy, mlups))
     return 0
 
 
 @main.command()
 @click.option("--use-cuda_native/--use-no-cuda_native",
-              default=True,
-              help="whether to use the cuda_native implementation or not.")
+              default=None,
+              help="Use the cuda_native implementation (CUDA only; default=auto).")
 @click.pass_context
 def convergence(ctx, use_cuda_native):
     """Use Taylor Green 2D for convergence test in diffusive scaling."""
-    use_cuda_native &= ctx.obj['device'].type != 'cpu'
     context = Context(ctx.obj['device'], ctx.obj['dtype'],
                       use_native=use_cuda_native)
 
