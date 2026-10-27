@@ -197,6 +197,12 @@ Boundary conditions
 .. autoclass:: EquilibriumOutletP
     :show-inheritance:
 
+.. autoclass:: ZouHePressureBoundary
+    :show-inheritance:
+
+.. autoclass:: NonEquilibriumExtrapolationPressureBoundary
+    :show-inheritance:
+
 .. autoclass:: PartiallySaturatedBC
     :show-inheritance:
 
