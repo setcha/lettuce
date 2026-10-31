@@ -23,6 +23,14 @@ class NonEquilibriumExtrapolationPressureBoundary(Boundary):
     Only non-corner cardinal-face nodes are supported. As with other local
     open boundaries, a pressure-flow calibration remains the caller's
     responsibility.
+
+    References
+    ----------
+    The non-equilibrium extrapolation construction is due to Shi, *Non-
+    equilibrium extrapolation method for velocity and pressure boundary
+    conditions in the lattice Boltzmann method*, doi:10.1088/1009-1963/11/4/310.
+    For the D2Q9 BGK pressure-boundary context used here, see Zou and He,
+    https://arxiv.org/abs/comp-gas/9611001 .
     """
 
     def __init__(self, flow: Flow, direction: Sequence[int], *,
@@ -59,7 +67,11 @@ class NonEquilibriumExtrapolationPressureBoundary(Boundary):
         return slice(1, -1), -2
 
     def __call__(self, flow: Flow) -> torch.Tensor:
-        """Set equilibrium density and extrapolate adjacent non-equilibrium."""
+        """Set target equilibrium density and extrapolate non-equilibrium.
+
+        The relation is ``f_b = f_eq(rho_b, u_i) + f_i - f_eq(rho_i, u_i)``;
+        see the class references for the derivation and boundary context.
+        """
         f_old = flow.f
         f = f_old.clone()
         index = self._index()

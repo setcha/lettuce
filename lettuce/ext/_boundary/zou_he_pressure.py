@@ -28,6 +28,12 @@ class ZouHePressureBoundary(Boundary):
     This implementation supports D2Q9 only and applies to the interior of a
     cardinal domain face.  It deliberately excludes corner nodes because a
     corner belongs to two faces and needs an explicit corner treatment.
+
+    References
+    ----------
+    Zou and He, *On pressure and velocity flow boundary conditions and
+    bounceback for the lattice Boltzmann BGK model*,
+    https://arxiv.org/abs/comp-gas/9611001 .
     """
 
     def __init__(self, flow: Flow, direction: Sequence[int], *,
@@ -63,7 +69,11 @@ class ZouHePressureBoundary(Boundary):
         return slice(1, -1), edge
 
     def __call__(self, flow: Flow) -> torch.Tensor:
-        """Reconstruct incoming populations from known streamed populations."""
+        """Reconstruct incoming populations using the Zou--He relations.
+
+        See https://arxiv.org/abs/comp-gas/9611001 for the population
+        reconstruction and pressure-driven Poiseuille validation.
+        """
         f_old = flow.f
         f = f_old.clone()
         index = self._index()
