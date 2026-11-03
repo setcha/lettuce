@@ -24,9 +24,19 @@ class NonEquilibriumExtrapolationPressureBoundary(Boundary):
     open boundaries, a pressure-flow calibration remains the caller's
     responsibility.
 
+    Apply as a post-collision, pre-streaming boundary (``post_boundaries`` in
+    ``Simulation``). The extrapolated non-equilibrium then has the same
+    collision phase as outgoing populations. ``span=(start, stop)`` limits the
+    aperture to a non-corner face segment. ``pressure_mode='reservoir'`` uses
+    the low-Mach total-pressure relation ``p_static=p_reservoir-rho*u^2/2``
+    on inflow; on reverse flow it uses the prescribed static backpressure.
+    This mode models a large, quiescent supply reservoir without prescribing
+    a channel velocity. It does not add a thermal or high-Mach gas model.
+
     References
     ----------
-    The non-equilibrium extrapolation construction is due to Shi, *Non-
+    The non-equilibrium extrapolation construction is due to Guo, Zheng and
+    Shi, *Non-
     equilibrium extrapolation method for velocity and pressure boundary
     conditions in the lattice Boltzmann method*, doi:10.1088/1009-1963/11/4/310.
     For the D2Q9 BGK pressure-boundary context used here, see Zou and He,
@@ -35,16 +45,25 @@ class NonEquilibriumExtrapolationPressureBoundary(Boundary):
 
     def __init__(self, flow: Flow, direction: Sequence[int], *,
                  pressure: Optional[Union[float, torch.Tensor]] = None,
-                 density: Optional[Union[float, torch.Tensor]] = None):
+                 density: Optional[Union[float, torch.Tensor]] = None,
+                 span: Optional[Sequence[int]] = None,
+                 pressure_mode: str = 'static'):
         if not isinstance(flow.stencil, D2Q9):
             raise ValueError('NonEquilibriumExtrapolationPressureBoundary supports D2Q9 only.')
         if tuple(direction) not in {(-1, 0), (1, 0), (0, -1), (0, 1)}:
             raise ValueError('direction must be an axis-aligned outward normal.')
         if (pressure is None) == (density is None):
             raise ValueError('Specify exactly one of pressure or density.')
+        if pressure_mode not in ('static', 'reservoir'):
+            raise ValueError("pressure_mode must be 'static' or 'reservoir'.")
         self.direction = tuple(int(component) for component in direction)
         self._axis = 0 if self.direction[0] else 1
         self._sign = self.direction[self._axis]
+        length = flow.resolution[1 - self._axis]
+        self.span = (1, length - 1) if span is None else tuple(span)
+        if len(self.span) != 2 or not 1 <= self.span[0] < self.span[1] <= length - 1:
+            raise ValueError('span must exclude global corner nodes.')
+        self.pressure_mode = pressure_mode
         self._rho = flow.context.convert_to_tensor(
             flow.units.convert_pressure_pu_to_density_lu(pressure)
             if pressure is not None else density)
@@ -54,17 +73,17 @@ class NonEquilibriumExtrapolationPressureBoundary(Boundary):
     def _index(self):
         edge = 0 if self._sign < 0 else -1
         if self._axis == 0:
-            return edge, slice(1, -1)
-        return slice(1, -1), edge
+            return edge, slice(*self.span)
+        return slice(*self.span), edge
 
     def _neighbor(self):
         if self.direction == (-1, 0):
-            return 1, slice(1, -1)
+            return 1, slice(*self.span)
         if self.direction == (1, 0):
-            return -2, slice(1, -1)
+            return -2, slice(*self.span)
         if self.direction == (0, -1):
-            return slice(1, -1), 1
-        return slice(1, -1), -2
+            return slice(*self.span), 1
+        return slice(*self.span), -2
 
     def __call__(self, flow: Flow) -> torch.Tensor:
         """Set target equilibrium density and extrapolate non-equilibrium.
@@ -80,6 +99,13 @@ class NonEquilibriumExtrapolationPressureBoundary(Boundary):
         velocity_neighbor = torch.einsum('qd,q...->d...', flow.torch_stencil.e, neighbor) / rho_neighbor
         feq_neighbor = flow.equilibrium(flow, rho_neighbor, velocity_neighbor)
         rho_target = torch.ones_like(rho_neighbor) * self._rho
+        if self.pressure_mode == 'reservoir':
+            # Low-Mach total-pressure inlet: p_static = p_reservoir-rho*u²/2.
+            # On outflow use the reservoir's static backpressure. The local
+            # velocity is obtained from the adjacent fluid, never prescribed.
+            inward = self._sign * velocity_neighbor[self._axis] < 0
+            head = rho_neighbor * velocity_neighbor.square().sum(dim=0) / (2 * flow.stencil.cs ** 2)
+            rho_target = rho_target - torch.where(inward, head, torch.zeros_like(head))
         feq_target = flow.equilibrium(flow, rho_target, velocity_neighbor)
         f[(slice(None), *index)] = feq_target + neighbor - feq_neighbor
         return f

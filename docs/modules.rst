@@ -142,6 +142,12 @@ Collision
 .. autoclass:: MRTCollision
     :show-inheritance:
 
+.. autoclass:: D2Q9MRTCollision
+    :members:
+
+.. autoclass:: EntropicCollision
+    :members:
+
 .. autoclass:: RegularizedCollision
     :show-inheritance:
 
@@ -170,6 +176,9 @@ Equilibrium
 
 .. autoclass:: QuadraticEquilibrium
     :show-inheritance:
+
+.. autoclass:: EntropicEquilibrium
+    :members:
 
 .. autoclass:: QuadraticEquilibriumLessMemory
     :show-inheritance:

@@ -82,3 +82,23 @@ def test_non_equilibrium_extrapolation_drives_a_finite_channel_flow():
     assert torch.isfinite(flow.f).all()
     assert velocity[0, 2:-2, 1:-1].mean() > 0
     assert torch.allclose(rho[0, 1:-1], torch.full_like(rho[0, 1:-1], 1.001), rtol=2e-5, atol=2e-5)
+
+
+def test_reservoir_pressure_converts_total_head_and_keeps_a_residual_aperture():
+    context = Context(device='cpu', dtype=torch.float64, use_native=False)
+    flow = _BoundaryFlow(context, resolution=[9, 8], reynolds_number=20,
+                         mach_number=0.05, stencil=D2Q9())
+    rho = torch.ones((1, 9, 8), dtype=torch.float64)
+    u = torch.zeros((2, 9, 8), dtype=torch.float64)
+    u[0] = 0.05
+    flow.f = flow.equilibrium(flow, rho, u)
+    boundary = NonEquilibriumExtrapolationPressureBoundary(
+        flow, [-1, 0], density=1.02, span=(3, 5), pressure_mode='reservoir')
+    after = boundary(flow)
+    target = 1.02 - 0.5 * 0.05 ** 2 / flow.stencil.cs ** 2
+    assert torch.allclose(after[:, 0, 3:5].sum(0), torch.full((2,), target, dtype=torch.float64), atol=1e-12, rtol=1e-12)
+    assert torch.allclose(after[:, 0, :3], flow.f[:, 0, :3], atol=1e-12, rtol=1e-12)
+    # Reverse flow sees static backpressure, not an inlet kinetic-head penalty.
+    flow.f = flow.equilibrium(flow, rho, -u)
+    after = boundary(flow)
+    assert torch.allclose(after[:, 0, 3:5].sum(0), torch.full((2,), 1.02, dtype=torch.float64), atol=1e-12, rtol=1e-12)
